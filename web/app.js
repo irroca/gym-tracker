@@ -12,7 +12,6 @@ const navItems = document.querySelectorAll('.nav-item');
 function init() {
     setupNavigation();
     renderTab(currentTab);
-    lucide.createIcons();
 }
 
 // Helpers for date and storage
@@ -24,7 +23,7 @@ function getTodayDateString() {
 function getCurrentDayIndex() {
     if (dayOverride !== null) return parseInt(dayOverride);
     const d = new Date();
-    return d.getDay(); // 0 is Sunday, 1 is Monday...
+    return d.getDay();
 }
 
 function getTaskKey(taskId) {
@@ -35,7 +34,7 @@ function isTaskCompleted(taskId) {
     return localStorage.getItem(getTaskKey(taskId)) === 'true';
 }
 
-function toggleTask(taskId, element, isCheck, callback) {
+function toggleTask(taskId, element, isSubTask = false, parentId = null) {
     const newState = !isTaskCompleted(taskId);
     if (newState) {
         localStorage.setItem(getTaskKey(taskId), 'true');
@@ -44,7 +43,34 @@ function toggleTask(taskId, element, isCheck, callback) {
         localStorage.removeItem(getTaskKey(taskId));
         element.classList.remove('completed');
     }
-    if(callback) callback();
+    
+    // If it's a sub-task, we might need to update the parent's visual state
+    if (isSubTask && parentId) {
+        checkParentCompletion(parentId);
+    }
+    
+    updateProgressRing();
+}
+
+function checkParentCompletion(parentId) {
+    const parentEl = document.getElementById(`task-${parentId}`);
+    if (!parentEl) return;
+    
+    // Find all sub-tasks within this parent
+    const subTasks = parentEl.querySelectorAll('.sub-task');
+    let allDone = true;
+    
+    subTasks.forEach(st => {
+        if (!st.classList.contains('completed')) {
+            allDone = false;
+        }
+    });
+    
+    if (allDone && subTasks.length > 0) {
+        parentEl.classList.add('completed');
+    } else {
+        parentEl.classList.remove('completed');
+    }
 }
 
 // Navigation Logic
@@ -61,17 +87,15 @@ function setupNavigation() {
 
 // Render Router
 function renderTab(tab) {
-    mainContent.innerHTML = ''; // Clear content
-    mainContent.className = 'main-scrollable tab-content'; // reset animation
-    
-    // Trigger reflow for animation restart
-    void mainContent.offsetWidth; 
+    mainContent.innerHTML = '';
+    mainContent.className = 'main-scrollable tab-content';
+    void mainContent.offsetWidth; // Reflow
 
     if (tab === 'today') renderTodayTab();
     else if (tab === 'plan') renderPlanTab();
     else if (tab === 'profile') renderProfileTab();
     
-    lucide.createIcons();
+    if(window.lucide) window.lucide.createIcons();
 }
 
 // --- TAB RENDERING: TODAY ---
@@ -85,99 +109,170 @@ function renderTodayTab() {
     const dateStr = (dayOverride !== null ? "[Debug Mode] " : "") + new Date().toLocaleDateString('en-US', dateOpts);
     headerDate.textContent = `${dateStr} • ${todayData.dayName}`;
 
-    // Compute progress
-    const allTasks = [...todayData.meals, ...todayData.workouts];
-    let completedCount = 0;
-    allTasks.forEach(t => {
-        if (isTaskCompleted(t.id)) completedCount++;
-    });
-    const progressPercent = allTasks.length === 0 ? 0 : Math.round((completedCount / allTasks.length) * 100);
+    // Split workouts into morning and evening based on name
+    const morningWorkouts = todayData.workouts.filter(w => !w.name.includes('【晚训】'));
+    const eveningWorkouts = todayData.workouts.filter(w => w.name.includes('【晚训】'));
 
-    const html = `
+    let html = `
         <div class="progress-card">
             <div class="progress-info">
                 <h3>${todayData.workoutType}</h3>
-                <p>${completedCount} of ${allTasks.length} completed</p>
+                <p id="progress-text">Calculating...</p>
             </div>
-            <div class="circular-progress" style="--progress: ${progressPercent}%">
-                <span class="progress-value">${progressPercent}%</span>
+            <div class="circular-progress" style="--progress: 0%">
+                <span class="progress-value">0%</span>
             </div>
         </div>
-
-        ${todayData.meals.length > 0 ? `
-        <div class="section-title">
-            <i data-lucide="utensils"></i> Nutrition Plan
-        </div>
-        <div class="task-group" id="meal-list">
-            ${todayData.meals.map(meal => createTaskHTML(meal, 'time')).join('')}
-        </div>
-        ` : ''}
-
-        ${todayData.workouts.length > 0 ? `
-        <div class="section-title">
-            <i data-lucide="dumbbell"></i> Workout Routine
-        </div>
-        ${todayData.warmup !== "无" ? `<div class="content-card" style="padding: 12px 16px; margin-bottom: 16px;"><p style="margin:0; font-size:13px"><strong style="color:var(--accent-secondary)">Warmup:</strong> ${todayData.warmup}</p></div>` : ''}
-        <div class="task-group" id="workout-list">
-            ${todayData.workouts.map(wo => createTaskHTML(wo, 'sets')).join('')}
-        </div>
-        ` : ''}
+        
+        <div class="timeline-container">
     `;
-    
+
+    // Render timeline based on meals array (which includes all chronological events)
+    todayData.meals.forEach(item => {
+        const isTraining = item.title.includes('早训') || item.title.includes('晚训');
+        
+        if (isTraining) {
+            // It's a training block (Accordion)
+            const isEvening = item.title.includes('晚训');
+            const workouts = isEvening ? eveningWorkouts : morningWorkouts;
+            
+            // Initial completion check for the block
+            const allCompleted = workouts.length > 0 && workouts.every(w => isTaskCompleted(w.id));
+            
+            html += `
+                <div class="timeline-item is-training ${allCompleted ? 'completed' : ''}" id="task-${item.id}">
+                    <div class="timeline-marker">
+                        <div class="training-icon"><i data-lucide="dumbbell" style="width: 14px; height: 14px"></i></div>
+                    </div>
+                    
+                    <div class="task-content accordion-header">
+                        <div class="task-title">
+                            ${item.time} ${item.title}
+                            <i data-lucide="chevron-down" class="chevron-icon"></i>
+                        </div>
+                        <div class="task-meta">
+                            ${workouts.length} 个训练动作
+                        </div>
+                        
+                        <div class="accordion-content">
+                            ${todayData.warmup !== "无" && !isEvening ? `<div style="font-size: 12px; color: var(--accent-secondary); margin-bottom: 8px;">热身: ${todayData.warmup}</div>` : ''}
+                            ${workouts.map(w => {
+                                const subDone = isTaskCompleted(w.id);
+                                return `
+                                    <div class="sub-task ${subDone ? 'completed' : ''}" id="subtask-${w.id}">
+                                        <div class="custom-checkbox"><i data-lucide="check"></i></div>
+                                        <div class="sub-task-content">
+                                            <div class="sub-task-title">${w.name} <span class="badge" style="float:right">${w.sets}</span></div>
+                                            <div class="sub-task-meta">${w.remark}</div>
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+                </div>
+            `;
+        } else {
+            // It's a normal timeline item (Meal/Rest)
+            const isDone = isTaskCompleted(item.id);
+            html += `
+                <div class="timeline-item ${isDone ? 'completed' : ''}" id="task-${item.id}">
+                    <div class="timeline-marker">
+                        <div class="custom-checkbox"><i data-lucide="check"></i></div>
+                    </div>
+                    
+                    <div class="task-content">
+                        <div class="task-title">${item.title}</div>
+                        <div class="task-meta">
+                            <span class="badge time">${item.time}</span>
+                            <span>${item.desc}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+    });
+
+    html += `</div>`; // Close timeline-container
     mainContent.innerHTML = html;
     
-    // Attach listeners
-    allTasks.forEach(t => {
-        const el = document.getElementById(`task-${t.id}`);
-        if(el) {
-            el.addEventListener('click', () => {
-                toggleTask(t.id, el, null, () => {
-                    // Update progress ring dynamically without full re-render
-                    updateProgressRing(allTasks);
+    attachTodayListeners(todayData);
+    updateProgressRing();
+}
+
+function attachTodayListeners(todayData) {
+    // Regular items
+    todayData.meals.forEach(item => {
+        const isTraining = item.title.includes('早训') || item.title.includes('晚训');
+        if (!isTraining) {
+            const el = document.getElementById(`task-${item.id}`);
+            if(el) {
+                // Click anywhere on the normal task card to toggle
+                el.querySelector('.task-content').addEventListener('click', () => {
+                    toggleTask(item.id, el);
                 });
+            }
+        } else {
+            // Accordion toggle
+            const blockEl = document.getElementById(`task-${item.id}`);
+            if (blockEl) {
+                const header = blockEl.querySelector('.task-title');
+                header.addEventListener('click', (e) => {
+                    // Prevent triggering if clicked inside content
+                    blockEl.classList.toggle('expanded');
+                });
+            }
+        }
+    });
+    
+    // Sub-tasks (Workouts)
+    todayData.workouts.forEach(w => {
+        const el = document.getElementById(`subtask-${w.id}`);
+        if(el) {
+            el.addEventListener('click', (e) => {
+                e.stopPropagation(); // Stop accordion from toggling
+                
+                // Find parent id
+                const parentBlock = el.closest('.timeline-item');
+                const parentId = parentBlock ? parentBlock.id.replace('task-', '') : null;
+                
+                toggleTask(w.id, el, true, parentId);
             });
         }
     });
 }
 
-function createTaskHTML(item, badgeKey) {
-    const isDone = isTaskCompleted(item.id);
-    const title = item.title || item.name;
-    const meta = item.desc || item.remark;
-    const badgeVal = item[badgeKey];
+function updateProgressRing() {
+    const dayIndex = getCurrentDayIndex();
+    const todayData = GYM_DATA.dailyRoutines[dayIndex.toString()];
     
-    return `
-        <div class="task-card ${isDone ? 'completed' : ''}" id="task-${item.id}">
-            <div class="checkbox-wrapper">
-                <div class="custom-checkbox">
-                    <i data-lucide="check"></i>
-                </div>
-            </div>
-            <div class="task-content">
-                <div class="task-title">${title}</div>
-                <div class="task-meta">
-                    ${badgeVal ? `<span class="badge ${badgeKey === 'time' ? 'time' : ''}">${badgeVal}</span>` : ''}
-                    <span>${meta}</span>
-                </div>
-            </div>
-        </div>
-    `;
-}
-
-function updateProgressRing(allTasks) {
-    let completedCount = 0;
-    allTasks.forEach(t => {
-        if (isTaskCompleted(t.id)) completedCount++;
+    let totalItems = 0;
+    let completedItems = 0;
+    
+    // Count normal meals
+    todayData.meals.forEach(m => {
+        const isTraining = m.title.includes('早训') || m.title.includes('晚训');
+        if (!isTraining) {
+            totalItems++;
+            if(isTaskCompleted(m.id)) completedItems++;
+        }
     });
-    const progressPercent = allTasks.length === 0 ? 0 : Math.round((completedCount / allTasks.length) * 100);
+    
+    // Count specific workouts
+    todayData.workouts.forEach(w => {
+        totalItems++;
+        if(isTaskCompleted(w.id)) completedItems++;
+    });
+    
+    const progressPercent = totalItems === 0 ? 0 : Math.round((completedItems / totalItems) * 100);
     
     const progressEl = document.querySelector('.circular-progress');
     const valEl = document.querySelector('.progress-value');
-    const infoEl = document.querySelector('.progress-info p');
+    const infoEl = document.getElementById('progress-text');
     
     if(progressEl) progressEl.style.setProperty('--progress', `${progressPercent}%`);
     if(valEl) valEl.textContent = `${progressPercent}%`;
-    if(infoEl) infoEl.textContent = `${completedCount} of ${allTasks.length} completed`;
+    if(infoEl) infoEl.textContent = `${completedItems} of ${totalItems} tasks completed`;
 }
 
 // --- TAB RENDERING: PLAN ---
@@ -247,9 +342,6 @@ function renderProfileTab() {
                 <option value="6">Saturday (周六)</option>
                 <option value="0">Sunday (周日)</option>
             </select>
-            <p style="font-size: 11px; color: var(--status-warning); margin-top: 8px;">
-                Change this to view and test other days without waiting for tomorrow.
-            </p>
         </div>
         
         <button id="clear-cache" class="btn-danger">
@@ -258,7 +350,6 @@ function renderProfileTab() {
     `;
     mainContent.innerHTML = html;
 
-    // Attach listeners
     const overrideSelect = document.getElementById('day-override');
     overrideSelect.value = dayOverride !== null ? dayOverride : "none";
     overrideSelect.addEventListener('change', (e) => {
@@ -274,7 +365,6 @@ function renderProfileTab() {
     const clearBtn = document.getElementById('clear-cache');
     clearBtn.addEventListener('click', () => {
         if(confirm("Are you sure you want to clear all completion data?")) {
-            // keep override setting, clear gym_* keys
             Object.keys(localStorage).forEach(key => {
                 if(key.startsWith('gym_202')) {
                     localStorage.removeItem(key);

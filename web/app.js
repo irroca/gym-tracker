@@ -44,7 +44,6 @@ function toggleTask(taskId, element, isSubTask = false, parentId = null) {
         element.classList.remove('completed');
     }
     
-    // If it's a sub-task, we might need to update the parent's visual state
     if (isSubTask && parentId) {
         checkParentCompletion(parentId);
     }
@@ -56,20 +55,21 @@ function checkParentCompletion(parentId) {
     const parentEl = document.getElementById(`task-${parentId}`);
     if (!parentEl) return;
     
-    // Find all sub-tasks within this parent
     const subTasks = parentEl.querySelectorAll('.sub-task');
-    let allDone = true;
+    let completedCount = 0;
     
     subTasks.forEach(st => {
-        if (!st.classList.contains('completed')) {
-            allDone = false;
+        if (st.classList.contains('completed')) {
+            completedCount++;
         }
     });
     
-    if (allDone && subTasks.length > 0) {
+    parentEl.classList.remove('completed', 'in-progress');
+    
+    if (subTasks.length > 0 && completedCount === subTasks.length) {
         parentEl.classList.add('completed');
-    } else {
-        parentEl.classList.remove('completed');
+    } else if (completedCount > 0) {
+        parentEl.classList.add('in-progress');
     }
 }
 
@@ -109,7 +109,6 @@ function renderTodayTab() {
     const dateStr = (dayOverride !== null ? "[Debug Mode] " : "") + new Date().toLocaleDateString('en-US', dateOpts);
     headerDate.textContent = `${dateStr} • ${todayData.dayName}`;
 
-    // Split workouts into morning and evening based on name
     const morningWorkouts = todayData.workouts.filter(w => !w.name.includes('【晚训】'));
     const eveningWorkouts = todayData.workouts.filter(w => w.name.includes('【晚训】'));
 
@@ -127,20 +126,25 @@ function renderTodayTab() {
         <div class="timeline-container">
     `;
 
-    // Render timeline based on meals array (which includes all chronological events)
     todayData.meals.forEach(item => {
         const isTraining = item.title.includes('早训') || item.title.includes('晚训');
         
         if (isTraining) {
-            // It's a training block (Accordion)
             const isEvening = item.title.includes('晚训');
             const workouts = isEvening ? eveningWorkouts : morningWorkouts;
             
-            // Initial completion check for the block
-            const allCompleted = workouts.length > 0 && workouts.every(w => isTaskCompleted(w.id));
+            let completedCount = 0;
+            workouts.forEach(w => { if(isTaskCompleted(w.id)) completedCount++; });
+            
+            let statusClass = '';
+            if (workouts.length > 0 && completedCount === workouts.length) {
+                statusClass = 'completed';
+            } else if (completedCount > 0) {
+                statusClass = 'in-progress';
+            }
             
             html += `
-                <div class="timeline-item is-training ${allCompleted ? 'completed' : ''}" id="task-${item.id}">
+                <div class="timeline-item is-training ${statusClass}" id="task-${item.id}">
                     <div class="timeline-marker">
                         <div class="training-icon"><i data-lucide="dumbbell" style="width: 14px; height: 14px"></i></div>
                     </div>
@@ -173,7 +177,6 @@ function renderTodayTab() {
                 </div>
             `;
         } else {
-            // It's a normal timeline item (Meal/Rest)
             const isDone = isTaskCompleted(item.id);
             html += `
                 <div class="timeline-item ${isDone ? 'completed' : ''}" id="task-${item.id}">
@@ -193,7 +196,7 @@ function renderTodayTab() {
         }
     });
 
-    html += `</div>`; // Close timeline-container
+    html += `</div>`;
     mainContent.innerHTML = html;
     
     attachTodayListeners(todayData);
@@ -201,41 +204,33 @@ function renderTodayTab() {
 }
 
 function attachTodayListeners(todayData) {
-    // Regular items
     todayData.meals.forEach(item => {
         const isTraining = item.title.includes('早训') || item.title.includes('晚训');
         if (!isTraining) {
             const el = document.getElementById(`task-${item.id}`);
             if(el) {
-                // Click anywhere on the normal task card to toggle
                 el.querySelector('.task-content').addEventListener('click', () => {
                     toggleTask(item.id, el);
                 });
             }
         } else {
-            // Accordion toggle
             const blockEl = document.getElementById(`task-${item.id}`);
             if (blockEl) {
                 const header = blockEl.querySelector('.task-title');
-                header.addEventListener('click', (e) => {
-                    // Prevent triggering if clicked inside content
+                header.addEventListener('click', () => {
                     blockEl.classList.toggle('expanded');
                 });
             }
         }
     });
     
-    // Sub-tasks (Workouts)
     todayData.workouts.forEach(w => {
         const el = document.getElementById(`subtask-${w.id}`);
         if(el) {
             el.addEventListener('click', (e) => {
-                e.stopPropagation(); // Stop accordion from toggling
-                
-                // Find parent id
+                e.stopPropagation();
                 const parentBlock = el.closest('.timeline-item');
                 const parentId = parentBlock ? parentBlock.id.replace('task-', '') : null;
-                
                 toggleTask(w.id, el, true, parentId);
             });
         }
@@ -249,7 +244,6 @@ function updateProgressRing() {
     let totalItems = 0;
     let completedItems = 0;
     
-    // Count normal meals
     todayData.meals.forEach(m => {
         const isTraining = m.title.includes('早训') || m.title.includes('晚训');
         if (!isTraining) {
@@ -258,7 +252,6 @@ function updateProgressRing() {
         }
     });
     
-    // Count specific workouts
     todayData.workouts.forEach(w => {
         totalItems++;
         if(isTaskCompleted(w.id)) completedItems++;
@@ -321,6 +314,11 @@ function renderProfileTab() {
     const p = GYM_DATA.profile;
 
     const html = `
+        <div class="section-title"><i data-lucide="activity"></i> Training Activity</div>
+        <div class="content-card" style="padding-bottom: 12px;">
+            ${generateHeatmapHTML()}
+        </div>
+
         <div class="section-title"><i data-lucide="user"></i> Metrics</div>
         <div class="content-card">
             <div class="profile-stat"><span class="profile-stat-label">Height / Weight</span><span class="profile-stat-value">${p.height} / ${p.weight}</span></div>
@@ -364,15 +362,87 @@ function renderProfileTab() {
 
     const clearBtn = document.getElementById('clear-cache');
     clearBtn.addEventListener('click', () => {
-        if(confirm("Are you sure you want to clear all completion data?")) {
+        if(confirm("Are you sure you want to clear all completion data? This will also wipe your activity history.")) {
             Object.keys(localStorage).forEach(key => {
                 if(key.startsWith('gym_202')) {
                     localStorage.removeItem(key);
                 }
             });
             alert("Progress cleared.");
+            renderTab('profile'); // re-render heatmap
         }
     });
+}
+
+function generateHeatmapHTML() {
+    const today = new Date();
+    const daysToLookBack = 84; // 12 weeks
+    let html = `<div class="heatmap-container">`;
+    
+    let days = [];
+    for(let i = daysToLookBack - 1; i >= 0; i--) {
+        const d = new Date(today);
+        d.setDate(today.getDate() - i);
+        days.push(d);
+    }
+    
+    let columnsHtml = '';
+    for(let col = 0; col < 12; col++) {
+        columnsHtml += `<div class="heatmap-col">`;
+        for(let row = 0; row < 7; row++) {
+            const index = col * 7 + row;
+            if (index < days.length) {
+                const dateObj = days[index];
+                const dateString = `${dateObj.getFullYear()}-${dateObj.getMonth()+1}-${dateObj.getDate()}`;
+                const dayIndex = dateObj.getDay(); 
+                
+                const dayData = GYM_DATA.dailyRoutines[dayIndex.toString()];
+                let totalTasks = 0;
+                let completedTasks = 0;
+                
+                dayData.meals.forEach(m => {
+                    const isTraining = m.title.includes('早训') || m.title.includes('晚训');
+                    if (!isTraining) {
+                        totalTasks++;
+                        if (localStorage.getItem(`gym_${dateString}_${m.id}`) === 'true') completedTasks++;
+                    }
+                });
+                dayData.workouts.forEach(w => {
+                    totalTasks++;
+                    if (localStorage.getItem(`gym_${dateString}_${w.id}`) === 'true') completedTasks++;
+                });
+                
+                let heatLevel = 0;
+                if (totalTasks > 0) {
+                    const ratio = completedTasks / totalTasks;
+                    if (ratio === 1) heatLevel = 4;
+                    else if (ratio >= 0.7) heatLevel = 3;
+                    else if (ratio >= 0.4) heatLevel = 2;
+                    else if (ratio > 0) heatLevel = 1;
+                }
+                
+                // Optional: hide future dates if we want, but since they have 0 progress they'll just be gray
+                columnsHtml += `<div class="heatmap-cell heat-${heatLevel}"></div>`;
+            }
+        }
+        columnsHtml += `</div>`;
+    }
+    
+    html += columnsHtml + `</div>`;
+    
+    // Add Legend
+    html += `
+        <div class="heatmap-legend">
+            Less 
+            <div class="legend-item heat-0"></div>
+            <div class="legend-item heat-1"></div>
+            <div class="legend-item heat-2"></div>
+            <div class="legend-item heat-3"></div>
+            <div class="legend-item heat-4"></div>
+            More
+        </div>
+    `;
+    return html;
 }
 
 // Start app

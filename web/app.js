@@ -15,15 +15,25 @@ function init() {
 }
 
 // Helpers for date and storage
+function getAppDate() {
+    const today = new Date();
+    if (dayOverride !== null && dayOverride !== "none") {
+        const targetDay = parseInt(dayOverride);
+        const currentDay = today.getDay();
+        let diff = currentDay - targetDay;
+        if (diff < 0) diff += 7;
+        today.setDate(today.getDate() - diff);
+    }
+    return today;
+}
+
 function getTodayDateString() {
-    const d = new Date();
+    const d = getAppDate();
     return `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`;
 }
 
 function getCurrentDayIndex() {
-    if (dayOverride !== null) return parseInt(dayOverride);
-    const d = new Date();
-    return d.getDay();
+    return getAppDate().getDay();
 }
 
 function getTaskKey(taskId) {

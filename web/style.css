@@ -59,11 +59,11 @@ body {
 }
 
 .app-header {
-    height: var(--header-height);
+    height: calc(var(--header-height) + env(safe-area-inset-top, 0px));
     display: flex;
     flex-direction: column;
     justify-content: center;
-    padding: 0 24px;
+    padding: env(safe-area-inset-top, 0px) 24px 0 24px;
     position: fixed;
     top: 0;
     left: 0;
@@ -90,7 +90,7 @@ body {
 .main-scrollable {
     flex: 1;
     overflow-y: auto;
-    padding: calc(var(--header-height) + 16px) 20px 120px 20px;
+    padding: calc(var(--header-height) + env(safe-area-inset-top, 0px) + 16px) 20px 120px 20px;
     scroll-behavior: smooth;
 }
 

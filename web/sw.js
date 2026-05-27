@@ -1,4 +1,4 @@
-const CACHE_NAME = 'gymtracker-v3';
+const CACHE_NAME = 'gymtracker-v4';
 const ASSETS = [
     './',
     './index.html',
@@ -10,9 +10,23 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', (e) => {
+    self.skipWaiting(); // Force activate new version
     e.waitUntil(
         caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS))
     );
+});
+
+self.addEventListener('activate', (e) => {
+    e.waitUntil(
+        caches.keys().then((keyList) => {
+            return Promise.all(keyList.map((key) => {
+                if (key !== CACHE_NAME) {
+                    return caches.delete(key);
+                }
+            }));
+        })
+    );
+    return self.clients.claim(); // Take control of all pages immediately
 });
 
 self.addEventListener('fetch', (e) => {

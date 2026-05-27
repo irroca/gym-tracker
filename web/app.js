@@ -369,66 +369,128 @@ function renderProfileTab() {
                 }
             });
             alert("Progress cleared.");
-            renderTab('profile'); // re-render heatmap
+            renderTab('profile');
         }
     });
+    
+    // Auto scroll heatmap to the right (today)
+    setTimeout(() => {
+        const scrollContainer = document.getElementById('heatmap-scroll');
+        if (scrollContainer) {
+            scrollContainer.scrollLeft = scrollContainer.scrollWidth;
+        }
+    }, 50);
 }
 
 function generateHeatmapHTML() {
     const today = new Date();
-    const daysToLookBack = 84; // 12 weeks
-    let html = `<div class="heatmap-container">`;
     
-    let days = [];
-    for(let i = daysToLookBack - 1; i >= 0; i--) {
-        const d = new Date(today);
-        d.setDate(today.getDate() - i);
-        days.push(d);
+    // Align grid so row 0 is Sunday, row 6 is Saturday.
+    const lastDayOfGrid = new Date(today);
+    lastDayOfGrid.setDate(today.getDate() + (6 - today.getDay()));
+    
+    // 12 columns = 12 weeks = 84 days
+    const firstDayOfGrid = new Date(lastDayOfGrid);
+    firstDayOfGrid.setDate(lastDayOfGrid.getDate() - 83);
+    
+    let gridDays = [];
+    for(let i = 0; i < 84; i++) {
+        const d = new Date(firstDayOfGrid);
+        d.setDate(firstDayOfGrid.getDate() + i);
+        gridDays.push(d);
     }
+    
+    let monthsHtml = '';
+    let currentMonth = -1;
+    let colsInMonth = 0;
     
     let columnsHtml = '';
     for(let col = 0; col < 12; col++) {
+        const firstDayOfCol = gridDays[col * 7];
+        
+        const monthIndex = firstDayOfCol.getMonth();
+        if (monthIndex !== currentMonth) {
+            if (currentMonth !== -1) {
+                const monthName = new Date(2000, currentMonth, 1).toLocaleString('en-US', {month: 'short'});
+                monthsHtml += `<div class="month-label" style="width: ${colsInMonth * 18}px">${monthName}</div>`;
+            }
+            currentMonth = monthIndex;
+            colsInMonth = 1;
+        } else {
+            colsInMonth++;
+        }
+        
         columnsHtml += `<div class="heatmap-col">`;
         for(let row = 0; row < 7; row++) {
             const index = col * 7 + row;
-            if (index < days.length) {
-                const dateObj = days[index];
-                const dateString = `${dateObj.getFullYear()}-${dateObj.getMonth()+1}-${dateObj.getDate()}`;
-                const dayIndex = dateObj.getDay(); 
-                
-                const dayData = GYM_DATA.dailyRoutines[dayIndex.toString()];
-                let totalTasks = 0;
-                let completedTasks = 0;
-                
-                dayData.meals.forEach(m => {
-                    const isTraining = m.title.includes('早训') || m.title.includes('晚训');
-                    if (!isTraining) {
-                        totalTasks++;
-                        if (localStorage.getItem(`gym_${dateString}_${m.id}`) === 'true') completedTasks++;
-                    }
-                });
-                dayData.workouts.forEach(w => {
-                    totalTasks++;
-                    if (localStorage.getItem(`gym_${dateString}_${w.id}`) === 'true') completedTasks++;
-                });
-                
-                let heatLevel = 0;
-                if (totalTasks > 0) {
-                    const ratio = completedTasks / totalTasks;
-                    if (ratio === 1) heatLevel = 4;
-                    else if (ratio >= 0.7) heatLevel = 3;
-                    else if (ratio >= 0.4) heatLevel = 2;
-                    else if (ratio > 0) heatLevel = 1;
-                }
-                
-                // Optional: hide future dates if we want, but since they have 0 progress they'll just be gray
-                columnsHtml += `<div class="heatmap-cell heat-${heatLevel}"></div>`;
+            const dateObj = gridDays[index];
+            
+            // If the date is in the future, render an invisible cell
+            if (dateObj > today) {
+                columnsHtml += `<div class="heatmap-cell hidden"></div>`;
+                continue;
             }
+            
+            const dateString = `${dateObj.getFullYear()}-${dateObj.getMonth()+1}-${dateObj.getDate()}`;
+            const dayIndex = dateObj.getDay(); 
+            
+            const dayData = GYM_DATA.dailyRoutines[dayIndex.toString()];
+            let totalTasks = 0;
+            let completedTasks = 0;
+            
+            dayData.meals.forEach(m => {
+                const isTraining = m.title.includes('早训') || m.title.includes('晚训');
+                if (!isTraining) {
+                    totalTasks++;
+                    if (localStorage.getItem(`gym_${dateString}_${m.id}`) === 'true') completedTasks++;
+                }
+            });
+            dayData.workouts.forEach(w => {
+                totalTasks++;
+                if (localStorage.getItem(`gym_${dateString}_${w.id}`) === 'true') completedTasks++;
+            });
+            
+            let heatLevel = 0;
+            if (totalTasks > 0) {
+                const ratio = completedTasks / totalTasks;
+                if (ratio === 1) heatLevel = 4;
+                else if (ratio >= 0.7) heatLevel = 3;
+                else if (ratio >= 0.4) heatLevel = 2;
+                else if (ratio > 0) heatLevel = 1;
+            }
+            
+            columnsHtml += `<div class="heatmap-cell heat-${heatLevel}"></div>`;
         }
         columnsHtml += `</div>`;
     }
     
-    html += columnsHtml + `</div>`;
+    // Add the final month label
+    if (currentMonth !== -1) {
+        const monthName = new Date(2000, currentMonth, 1).toLocaleString('en-US', {month: 'short'});
+        monthsHtml += `<div class="month-label" style="width: ${colsInMonth * 18}px">${monthName}</div>`;
+    }
+    
+    let html = `
+        <div class="heatmap-wrapper">
+            <div class="heatmap-weekdays">
+                <div class="weekday-label" style="visibility: hidden">Sun</div>
+                <div class="weekday-label">Mon</div>
+                <div class="weekday-label" style="visibility: hidden">Tue</div>
+                <div class="weekday-label">Wed</div>
+                <div class="weekday-label" style="visibility: hidden">Thu</div>
+                <div class="weekday-label">Fri</div>
+                <div class="weekday-label" style="visibility: hidden">Sat</div>
+            </div>
+            <div class="heatmap-scroll-container" id="heatmap-scroll">
+                <div class="heatmap-months">
+                    ${monthsHtml}
+                </div>
+                <div class="heatmap-grid">
+                    ${columnsHtml}
+                </div>
+            </div>
+        </div>
+    `;
     
     // Add Legend
     html += `

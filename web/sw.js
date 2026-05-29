@@ -1,38 +1,32 @@
-const CACHE_NAME = 'gymtracker-v10';
+const CACHE_NAME = 'gymtracker-v11';
 const ASSETS = [
-    './',
-    './index.html',
-    './style.css',
-    './app.js',
-    './data.js',
-    './manifest.json',
-    './lucide.min.js',
-    './icon-192.png',
-    './icon-512.png'
+  './',
+  './index.html',
+  './style.css',
+  './app.js',
+  './data.js',
+  './manifest.json',
+  './lucide.min.js',
+  './icon-192.png',
+  './icon-512.png',
+  './modules/date.mjs',
+  './modules/state.mjs',
+  './modules/storage.mjs',
+  './modules/ui.mjs'
 ];
 
-self.addEventListener('install', (e) => {
-    self.skipWaiting(); // Force activate new version
-    e.waitUntil(
-        caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS))
-    );
+self.addEventListener('install', (event) => {
+  self.skipWaiting();
+  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS)));
 });
 
-self.addEventListener('activate', (e) => {
-    e.waitUntil(
-        caches.keys().then((keyList) => {
-            return Promise.all(keyList.map((key) => {
-                if (key !== CACHE_NAME) {
-                    return caches.delete(key);
-                }
-            }));
-        })
-    );
-    return self.clients.claim(); // Take control of all pages immediately
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys().then((keys) => Promise.all(keys.map((key) => (key !== CACHE_NAME ? caches.delete(key) : null))))
+  );
+  self.clients.claim();
 });
 
-self.addEventListener('fetch', (e) => {
-    e.respondWith(
-        caches.match(e.request).then((response) => response || fetch(e.request))
-    );
+self.addEventListener('fetch', (event) => {
+  event.respondWith(caches.match(event.request).then((response) => response || fetch(event.request)));
 });

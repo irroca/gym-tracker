@@ -1,24 +1,24 @@
 {
-    "name": "GymTracker",
-    "short_name": "GymTracker",
-    "description": "Personal fitness and diet tracking app",
-    "start_url": "./index.html",
-    "display": "standalone",
-    "background_color": "#0A0A0A",
-    "theme_color": "#00E676",
-    "orientation": "portrait",
-    "icons": [
-        {
-            "src": "icon-192.png",
-            "sizes": "192x192",
-            "type": "image/png",
-            "purpose": "any maskable"
-        },
-        {
-            "src": "icon-512.png",
-            "sizes": "512x512",
-            "type": "image/png",
-            "purpose": "any maskable"
-        }
-    ]
+  "name": "健身打卡计划",
+  "short_name": "健身打卡",
+  "description": "个人训练与饮食打卡应用",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#111418",
+  "theme_color": "#111418",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
 }

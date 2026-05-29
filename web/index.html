@@ -1,71 +1,65 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <!-- Viewport settings specifically tuned for PWA / Mobile App feel -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    
-    <!-- PWA Meta Tags -->
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="theme-color" content="#121212">
-    
-    <title>GymTracker</title>
-    
-    
-    <!-- Custom Styles -->
+    <meta name="theme-color" content="#111418">
+    <title>健身打卡计划</title>
     <link rel="stylesheet" href="style.css">
-    
-    <!-- Manifest for PWA -->
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
 </head>
 <body>
-    <!-- App Container -->
     <div id="app" class="app-container">
-        
-        <!-- HEADER -->
         <header class="app-header glassmorphism">
-            <h1 id="header-title">Today</h1>
-            <div id="header-date" class="header-subtitle">Loading...</div>
+            <h1 id="header-title">今日</h1>
+            <div id="header-date" class="header-subtitle">加载中…</div>
         </header>
 
-        <!-- MAIN CONTENT AREA -->
-        <main id="main-content" class="main-scrollable">
-            <!-- Content will be injected here by app.js -->
-        </main>
+        <main id="main-content" class="main-scrollable"></main>
 
-        <!-- BOTTOM NAVIGATION -->
-        <nav class="bottom-nav glassmorphism">
-            <button class="nav-item active" data-tab="today">
+        <nav class="bottom-nav glassmorphism" aria-label="主导航">
+            <button class="nav-item active" data-tab="today" type="button">
                 <i data-lucide="check-square"></i>
-                <span>Today</span>
+                <span>今日</span>
             </button>
-            <button class="nav-item" data-tab="plan">
+            <button class="nav-item" data-tab="plan" type="button">
                 <i data-lucide="book-open"></i>
-                <span>Plan</span>
+                <span>总计划</span>
             </button>
-            <button class="nav-item" data-tab="profile">
+            <button class="nav-item" data-tab="profile" type="button">
                 <i data-lucide="user"></i>
-                <span>Profile</span>
+                <span>我的</span>
             </button>
         </nav>
     </div>
 
-    <!-- Scripts -->
-    <!-- Lucide Icons -->
     <script src="lucide.min.js"></script>
-    
-    <!-- Data and App Logic -->
-    <script src="data.js"></script>
-    <script src="app.js"></script>
-    
-    <!-- Service Worker Registration -->
+    <script type="module" src="app.js"></script>
     <script>
         if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./sw.js').catch(err => {
-                    console.log('SW registration failed:', err);
+            const isLocalPreview = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
+
+            window.addEventListener('load', async () => {
+                if (isLocalPreview) {
+                    const registrations = await navigator.serviceWorker.getRegistrations();
+                    await Promise.all(registrations.map((registration) => registration.unregister()));
+
+                    if ('caches' in window) {
+                        const keys = await window.caches.keys();
+                        await Promise.all(
+                            keys
+                                .filter((key) => key.startsWith('gymtracker-'))
+                                .map((key) => window.caches.delete(key))
+                        );
+                    }
+                    return;
+                }
+
+                navigator.serviceWorker.register('./sw.js').catch((error) => {
+                    console.log('SW registration failed:', error);
                 });
             });
         }

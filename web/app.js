@@ -1,521 +1,473 @@
-// Initialize state
-let currentTab = 'today';
-let dayOverride = localStorage.getItem('gym_day_override') || null; 
+import { GYM_DATA } from './data.js';
+import { formatChineseHeaderDate, formatHeatmapMonth, formatShortWeekday, toDateKey } from './modules/date.mjs';
+import { createAppState } from './modules/state.mjs';
+import { clearGymStorage, isTaskCompleted, setTaskCompleted } from './modules/storage.mjs';
+import {
+  computeDayProgress,
+  extractWorkoutGroups,
+  getDailyHighlights,
+  getHeatLevel,
+  getTrainingGroupStatus,
+  getVisualContext,
+  isTrainingMeal,
+} from './modules/ui.mjs';
 
-// DOM Elements
-const headerTitle = document.getElementById('header-title');
-const headerDate = document.getElementById('header-date');
-const mainContent = document.getElementById('main-content');
-const navItems = document.querySelectorAll('.nav-item');
+const state = createAppState(window.localStorage);
 
-// Initialize App
+const dom = {
+  headerTitle: document.getElementById('header-title'),
+  headerDate: document.getElementById('header-date'),
+  mainContent: document.getElementById('main-content'),
+  navItems: Array.from(document.querySelectorAll('.nav-item')),
+};
+
 function init() {
-    setupNavigation();
-    renderTab(currentTab);
+  setupNavigation();
+  renderCurrentTab();
 }
 
-// Helpers for date and storage
-function getAppDate() {
-    const today = new Date();
-    if (dayOverride !== null && dayOverride !== "none") {
-        const targetDay = parseInt(dayOverride);
-        const currentDay = today.getDay();
-        let diff = currentDay - targetDay;
-        if (diff < 0) diff += 7;
-        today.setDate(today.getDate() - diff);
-    }
-    return today;
-}
-
-function getTodayDateString() {
-    const d = getAppDate();
-    return `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`;
-}
-
-function getCurrentDayIndex() {
-    return getAppDate().getDay();
-}
-
-function getTaskKey(taskId) {
-    return `gym_${getTodayDateString()}_${taskId}`;
-}
-
-function isTaskCompleted(taskId) {
-    return localStorage.getItem(getTaskKey(taskId)) === 'true';
-}
-
-function toggleTask(taskId, element, isSubTask = false, parentId = null) {
-    const newState = !isTaskCompleted(taskId);
-    if (newState) {
-        localStorage.setItem(getTaskKey(taskId), 'true');
-        element.classList.add('completed');
-    } else {
-        localStorage.removeItem(getTaskKey(taskId));
-        element.classList.remove('completed');
-    }
-    
-    if (isSubTask && parentId) {
-        checkParentCompletion(parentId);
-    }
-    
-    updateProgressRing();
-}
-
-function checkParentCompletion(parentId) {
-    const parentEl = document.getElementById(`task-${parentId}`);
-    if (!parentEl) return;
-    
-    const subTasks = parentEl.querySelectorAll('.sub-task');
-    let completedCount = 0;
-    
-    subTasks.forEach(st => {
-        if (st.classList.contains('completed')) {
-            completedCount++;
-        }
-    });
-    
-    parentEl.classList.remove('completed', 'in-progress');
-    
-    if (subTasks.length > 0 && completedCount === subTasks.length) {
-        parentEl.classList.add('completed');
-    } else if (completedCount > 0) {
-        parentEl.classList.add('in-progress');
-    }
-}
-
-// Navigation Logic
 function setupNavigation() {
-    navItems.forEach(item => {
-        item.addEventListener('click', () => {
-            navItems.forEach(n => n.classList.remove('active'));
-            item.classList.add('active');
-            currentTab = item.dataset.tab;
-            renderTab(currentTab);
-        });
+  dom.navItems.forEach((item) => {
+    item.addEventListener('click', () => {
+      state.setCurrentTab(item.dataset.tab);
+      syncActiveNav();
+      renderCurrentTab();
     });
+  });
+  syncActiveNav();
 }
 
-// Render Router
-function renderTab(tab) {
-    mainContent.innerHTML = '';
-    mainContent.className = 'main-scrollable tab-content';
-    void mainContent.offsetWidth; // Reflow
-
-    if (tab === 'today') renderTodayTab();
-    else if (tab === 'plan') renderPlanTab();
-    else if (tab === 'profile') renderProfileTab();
-    
-    if(window.lucide) window.lucide.createIcons();
+function syncActiveNav() {
+  const currentTab = state.getCurrentTab();
+  dom.navItems.forEach((item) => {
+    item.classList.toggle('active', item.dataset.tab === currentTab);
+  });
 }
 
-// --- TAB RENDERING: TODAY ---
+function renderCurrentTab() {
+  const currentTab = state.getCurrentTab();
+  dom.mainContent.innerHTML = '';
+  dom.mainContent.className = 'main-scrollable tab-content';
+
+  if (currentTab === 'today') {
+    renderTodayTab();
+  } else if (currentTab === 'plan') {
+    renderPlanTab();
+  } else {
+    renderProfileTab();
+  }
+
+  if (window.lucide) {
+    window.lucide.createIcons();
+  }
+}
+
 function renderTodayTab() {
-    headerTitle.textContent = "Today's Plan";
-    
-    const dayIndex = getCurrentDayIndex();
-    const todayData = GYM_DATA.dailyRoutines[dayIndex.toString()];
-    
-    const dateOpts = { weekday: 'long', month: 'short', day: 'numeric' };
-    const dateStr = (dayOverride !== null ? "[Debug Mode] " : "") + new Date().toLocaleDateString('en-US', dateOpts);
-    headerDate.textContent = `${dateStr} • ${todayData.dayName}`;
+  const appDate = state.getAppDate();
+  const dateKey = state.getDateKey(appDate);
+  const todayData = GYM_DATA.dailyRoutines[String(appDate.getDay())];
+  const workoutGroups = extractWorkoutGroups(todayData.workouts);
+  const progress = computeDayProgress(todayData, window.localStorage, dateKey);
+  const highlights = getDailyHighlights(todayData);
+  const visual = getVisualContext(todayData);
 
-    const morningWorkouts = todayData.workouts.filter(w => !w.name.includes('【晚训】'));
-    const eveningWorkouts = todayData.workouts.filter(w => w.name.includes('【晚训】'));
+  dom.headerTitle.textContent = '今日';
+  dom.headerDate.textContent = formatChineseHeaderDate(appDate, state.isDebugMode());
 
-    let html = `
-        <div class="progress-card">
-            <div class="progress-info">
-                <h3>${todayData.workoutType}</h3>
-                <p id="progress-text">Calculating...</p>
+  const timelineHtml = todayData.meals.map((item) => {
+    if (isTrainingMeal(item)) {
+      const isEvening = item.title.includes('晚训');
+      const workouts = isEvening ? workoutGroups.evening : workoutGroups.morning;
+      return renderTrainingBlock(item, workouts, todayData.warmup, dateKey);
+    }
+    return renderMealBlock(item, dateKey);
+  }).join('');
+
+  dom.mainContent.innerHTML = `
+    <section class="summary-card summary-card--${visual.tone}">
+      <div class="summary-backdrop"></div>
+      <div class="summary-gridline"></div>
+      <div class="summary-row">
+        <div class="summary-copyblock">
+          <div class="eyebrow-row">
+            <span class="summary-pill">${todayData.dayName}</span>
+            <span class="summary-pill summary-pill-energy">${visual.badge}</span>
+            ${state.isDebugMode() ? '<span class="summary-pill summary-pill-debug">调试模式</span>' : ''}
+          </div>
+          <div class="summary-kicker-row">
+            <p class="summary-label">今日训练主题</p>
+            <span class="summary-energy">${visual.energy}</span>
+          </div>
+          <h2 class="summary-title">${todayData.workoutType}</h2>
+          <p class="summary-copy">${progress.completedItems} / ${progress.totalItems} 项完成，继续保持节奏。</p>
+          <div class="summary-stats-bar">
+            <div class="summary-stat">
+              <span class="summary-stat-label">完成率</span>
+              <strong>${progress.progressPercent}%</strong>
             </div>
-            <div class="circular-progress" style="--progress: 0%">
-                <span class="progress-value">0%</span>
+            <div class="summary-stat">
+              <span class="summary-stat-label">待完成</span>
+              <strong>${Math.max(progress.totalItems - progress.completedItems, 0)} 项</strong>
             </div>
+          </div>
         </div>
-        
-        <div class="timeline-container">
-    `;
+        <div class="summary-progress-wrap">
+          <div class="summary-progress-halo"></div>
+          <div class="circular-progress" style="--progress:${progress.progressPercent}%">
+            <span class="progress-value">${progress.progressPercent}%</span>
+          </div>
+        </div>
+      </div>
+      <div class="highlight-list">
+        ${highlights.map((item, index) => `<div class="highlight-chip highlight-chip--${index + 1}"><i data-lucide="sparkles"></i><span>${item}</span></div>`).join('')}
+      </div>
+    </section>
 
-    todayData.meals.forEach(item => {
-        const isTraining = item.title.includes('早训') || item.title.includes('晚训');
-        
-        if (isTraining) {
-            const isEvening = item.title.includes('晚训');
-            const workouts = isEvening ? eveningWorkouts : morningWorkouts;
-            
-            let completedCount = 0;
-            workouts.forEach(w => { if(isTaskCompleted(w.id)) completedCount++; });
-            
-            let statusClass = '';
-            if (workouts.length > 0 && completedCount === workouts.length) {
-                statusClass = 'completed';
-            } else if (completedCount > 0) {
-                statusClass = 'in-progress';
-            }
-            
-            html += `
-                <div class="timeline-item is-training ${statusClass}" id="task-${item.id}">
-                    <div class="timeline-marker">
-                        <div class="training-icon"><i data-lucide="dumbbell" style="width: 14px; height: 14px"></i></div>
-                    </div>
-                    
-                    <div class="task-content accordion-header">
-                        <div class="task-title">
-                            ${item.time} ${item.title}
-                            <i data-lucide="chevron-down" class="chevron-icon"></i>
-                        </div>
-                        <div class="task-meta">
-                            ${workouts.length} 个训练动作
-                        </div>
-                        
-                        <div class="accordion-content">
-                            ${todayData.warmup !== "无" && !isEvening ? `<div style="font-size: 12px; color: var(--accent-secondary); margin-bottom: 8px;">热身: ${todayData.warmup}</div>` : ''}
-                            ${workouts.map(w => {
-                                const subDone = isTaskCompleted(w.id);
-                                return `
-                                    <div class="sub-task ${subDone ? 'completed' : ''}" id="subtask-${w.id}">
-                                        <div class="custom-checkbox"><i data-lucide="check"></i></div>
-                                        <div class="sub-task-content">
-                                            <div class="sub-task-title">${w.name} <span class="badge" style="float:right">${w.sets}</span></div>
-                                            <div class="sub-task-meta">${w.remark}</div>
-                                        </div>
-                                    </div>
-                                `;
-                            }).join('')}
-                        </div>
-                    </div>
-                </div>
-            `;
-        } else {
-            const isDone = isTaskCompleted(item.id);
-            html += `
-                <div class="timeline-item ${isDone ? 'completed' : ''}" id="task-${item.id}">
-                    <div class="timeline-marker">
-                        <div class="custom-checkbox"><i data-lucide="check"></i></div>
-                    </div>
-                    
-                    <div class="task-content">
-                        <div class="task-title">${item.title}</div>
-                        <div class="task-meta">
-                            <span class="badge time">${item.time}</span>
-                            <span>${item.desc}</span>
-                        </div>
-                    </div>
-                </div>
-            `;
-        }
-    });
+    <div class="section-title section-title-inline">
+      <span>今日安排</span>
+      <span class="section-meta">按时间顺序执行训练与饮食</span>
+    </div>
 
-    html += `</div>`;
-    mainContent.innerHTML = html;
-    
-    attachTodayListeners(todayData);
-    updateProgressRing();
+    <div class="timeline-container">
+      ${timelineHtml}
+    </div>
+  `;
+
+  bindTodayInteractions(dateKey);
 }
 
-function attachTodayListeners(todayData) {
-    todayData.meals.forEach(item => {
-        const isTraining = item.title.includes('早训') || item.title.includes('晚训');
-        if (!isTraining) {
-            const el = document.getElementById(`task-${item.id}`);
-            if(el) {
-                el.querySelector('.task-content').addEventListener('click', () => {
-                    toggleTask(item.id, el);
-                });
-            }
-        } else {
-            const blockEl = document.getElementById(`task-${item.id}`);
-            if (blockEl) {
-                const header = blockEl.querySelector('.task-title');
-                header.addEventListener('click', () => {
-                    blockEl.classList.toggle('expanded');
-                });
-            }
-        }
-    });
-    
-    todayData.workouts.forEach(w => {
-        const el = document.getElementById(`subtask-${w.id}`);
-        if(el) {
-            el.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const parentBlock = el.closest('.timeline-item');
-                const parentId = parentBlock ? parentBlock.id.replace('task-', '') : null;
-                toggleTask(w.id, el, true, parentId);
-            });
-        }
-    });
+function renderMealBlock(item, dateKey) {
+  const completed = isTaskCompleted(window.localStorage, dateKey, item.id);
+
+  return `
+    <button type="button" class="timeline-item timeline-task ${completed ? 'completed' : ''}" data-task-id="${item.id}">
+      <div class="timeline-rail">
+        <span class="custom-checkbox"><i data-lucide="check"></i></span>
+      </div>
+      <div class="task-surface task-surface-meal">
+        <div class="task-head">
+          <div>
+            <div class="task-title">${item.title}</div>
+            <p class="task-desc">${item.desc}</p>
+          </div>
+          <div class="task-meta-stack"><span class="time-chip">${item.time}</span><span class="task-meta-inline">轻量执行</span></div>
+        </div>
+      </div>
+    </button>
+  `;
 }
 
-function updateProgressRing() {
-    const dayIndex = getCurrentDayIndex();
-    const todayData = GYM_DATA.dailyRoutines[dayIndex.toString()];
-    
-    let totalItems = 0;
-    let completedItems = 0;
-    
-    todayData.meals.forEach(m => {
-        const isTraining = m.title.includes('早训') || m.title.includes('晚训');
-        if (!isTraining) {
-            totalItems++;
-            if(isTaskCompleted(m.id)) completedItems++;
-        }
-    });
-    
-    todayData.workouts.forEach(w => {
-        totalItems++;
-        if(isTaskCompleted(w.id)) completedItems++;
-    });
-    
-    const progressPercent = totalItems === 0 ? 0 : Math.round((completedItems / totalItems) * 100);
-    
-    const progressEl = document.querySelector('.circular-progress');
-    const valEl = document.querySelector('.progress-value');
-    const infoEl = document.getElementById('progress-text');
-    
-    if(progressEl) progressEl.style.setProperty('--progress', `${progressPercent}%`);
-    if(valEl) valEl.textContent = `${progressPercent}%`;
-    if(infoEl) infoEl.textContent = `${completedItems} of ${totalItems} tasks completed`;
-}
+function renderTrainingBlock(item, workouts, warmup, dateKey) {
+  const statusClass = getTrainingGroupStatus(workouts, window.localStorage, dateKey);
+  const warmupHtml = (!item.title.includes('晚训') && warmup !== '无')
+    ? `<div class="warmup-note"><span class="warmup-label">热身</span><span>${warmup}</span></div>`
+    : '';
 
-// --- TAB RENDERING: PLAN ---
-function renderPlanTab() {
-    headerTitle.textContent = "Knowledge Base";
-    headerDate.textContent = "Full program references";
-
-    const html = `
-        <div class="section-title"><i data-lucide="calendar"></i> Weekly Overview</div>
-        <div class="content-card">
-            ${GYM_DATA.weeklyOverview.map(w => `
-                <div class="profile-stat">
-                    <span class="profile-stat-label" style="min-width: 40px">${w.day}</span>
-                    <span class="profile-stat-value" style="text-align:right; font-size:13px">${w.morning} <br> <span style="color:var(--text-tertiary)">${w.evening}</span></span>
-                </div>
-            `).join('')}
-        </div>
-
-        <div class="section-title"><i data-lucide="pill"></i> Supplements</div>
-        <div class="content-card">
-            ${GYM_DATA.supplements.map(s => `
-                <div style="margin-bottom: 12px; border-bottom: 1px solid var(--bg-surface-elevated); padding-bottom: 8px;">
-                    <div style="font-weight: 600; color: var(--accent-primary)">${s.name}</div>
-                    <div style="font-size: 13px; color: var(--text-secondary); margin-top: 4px;">
-                        <span class="badge">${s.dose}</span> ${s.time}
-                    </div>
-                </div>
-            `).join('')}
-        </div>
-
-        <div class="section-title"><i data-lucide="alert-triangle"></i> Hard Rules</div>
-        <div class="content-card">
-            <ul style="padding-left: 20px;">
-                ${GYM_DATA.rules.map(r => `<li style="margin-bottom: 8px">${r}</li>`).join('')}
-            </ul>
-        </div>
-    `;
-    mainContent.innerHTML = html;
-}
-
-// --- TAB RENDERING: PROFILE ---
-function renderProfileTab() {
-    headerTitle.textContent = "Profile Settings";
-    headerDate.textContent = "Manage your data";
-
-    const p = GYM_DATA.profile;
-
-    const html = `
-        <div class="section-title"><i data-lucide="activity"></i> Training Activity</div>
-        <div class="content-card" style="padding-bottom: 12px;">
-            ${generateHeatmapHTML()}
-        </div>
-
-        <div class="section-title"><i data-lucide="user"></i> Metrics</div>
-        <div class="content-card">
-            <div class="profile-stat"><span class="profile-stat-label">Height / Weight</span><span class="profile-stat-value">${p.height} / ${p.weight}</span></div>
-            <div class="profile-stat"><span class="profile-stat-label">Body Fat</span><span class="profile-stat-value">${p.bodyFat} ➔ <span style="color:var(--accent-primary)">${p.targetBodyFat}</span></span></div>
-            <div class="profile-stat"><span class="profile-stat-label">BMR</span><span class="profile-stat-value">${p.bmr}</span></div>
-            <div class="profile-stat"><span class="profile-stat-label">Target Weight</span><span class="profile-stat-value" style="color:var(--accent-primary)">${p.targetWeight}</span></div>
-        </div>
-
-        <div class="section-title"><i data-lucide="settings"></i> Debug & Settings</div>
-        <div class="content-card">
-            <label class="profile-stat-label" style="display:block; margin-bottom: 8px">Force Day Override (Testing)</label>
-            <select id="day-override" class="select-override">
-                <option value="none">Auto (Today)</option>
-                <option value="1">Monday (周一)</option>
-                <option value="2">Tuesday (周二)</option>
-                <option value="3">Wednesday (周三)</option>
-                <option value="4">Thursday (周四)</option>
-                <option value="5">Friday (周五)</option>
-                <option value="6">Saturday (周六)</option>
-                <option value="0">Sunday (周日)</option>
-            </select>
-        </div>
-        
-        <button id="clear-cache" class="btn-danger">
-            Clear Local Progress Data
+  return `
+    <section class="timeline-item timeline-training ${statusClass}" id="block-${item.id}">
+      <div class="timeline-rail">
+        <span class="training-icon"><i data-lucide="dumbbell"></i></span>
+      </div>
+      <div class="task-surface task-surface-training"><div class="training-sheen"></div>
+        <button type="button" class="training-toggle" data-training-id="${item.id}">
+          <div class="task-head task-head-training">
+            <div>
+              <div class="task-title">${item.title}</div>
+              <p class="task-desc">${item.desc}</p>
+            </div>
+            <div class="training-side">
+              <span class="time-chip">${item.time}</span>
+              <span class="meta-chip">${workouts.length} 个动作</span>
+              <i data-lucide="chevron-down" class="chevron-icon"></i>
+            </div>
+          </div>
         </button>
-    `;
-    mainContent.innerHTML = html;
+        <div class="training-panel">
+          ${warmupHtml}
+          <div class="sub-task-list">
+            ${workouts.map((workout) => {
+              const completed = isTaskCompleted(window.localStorage, dateKey, workout.id);
+              return `
+                <button type="button" class="sub-task ${completed ? 'completed' : ''}" data-workout-id="${workout.id}">
+                  <span class="custom-checkbox"><i data-lucide="check"></i></span>
+                  <span class="sub-task-content">
+                    <span class="sub-task-row">
+                      <span class="sub-task-title">${workout.name}</span>
+                      <span class="badge">${workout.sets}</span>
+                    </span>
+                    <span class="sub-task-meta">${workout.remark}</span>
+                  </span>
+                </button>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      </div>
+    </section>
+  `;
+}
 
-    const overrideSelect = document.getElementById('day-override');
-    overrideSelect.value = dayOverride !== null ? dayOverride : "none";
-    overrideSelect.addEventListener('change', (e) => {
-        if(e.target.value === "none") {
-            localStorage.removeItem('gym_day_override');
-            dayOverride = null;
-        } else {
-            localStorage.setItem('gym_day_override', e.target.value);
-            dayOverride = e.target.value;
-        }
+function bindTodayInteractions(dateKey) {
+  dom.mainContent.querySelectorAll('[data-task-id]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const taskId = button.dataset.taskId;
+      const nextState = !isTaskCompleted(window.localStorage, dateKey, taskId);
+      setTaskCompleted(window.localStorage, dateKey, taskId, nextState);
+      renderCurrentTab();
     });
+  });
 
-    const clearBtn = document.getElementById('clear-cache');
-    clearBtn.addEventListener('click', () => {
-        if(confirm("Are you sure you want to clear all completion data? This will also wipe your activity history.")) {
-            Object.keys(localStorage).forEach(key => {
-                if(key.startsWith('gym_202')) {
-                    localStorage.removeItem(key);
-                }
-            });
-            alert("Progress cleared.");
-            renderTab('profile');
-        }
+  dom.mainContent.querySelectorAll('[data-training-id]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const block = document.getElementById(`block-${button.dataset.trainingId}`);
+      if (block) block.classList.toggle('expanded');
     });
-    
-    // Auto scroll heatmap to the right (today)
-    setTimeout(() => {
-        const scrollContainer = document.getElementById('heatmap-scroll');
-        if (scrollContainer) {
-            scrollContainer.scrollLeft = scrollContainer.scrollWidth;
-        }
-    }, 50);
+  });
+
+  dom.mainContent.querySelectorAll('[data-workout-id]').forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const taskId = button.dataset.workoutId;
+      const nextState = !isTaskCompleted(window.localStorage, dateKey, taskId);
+      setTaskCompleted(window.localStorage, dateKey, taskId, nextState);
+      renderCurrentTab();
+    });
+  });
+}
+
+function renderPlanTab() {
+  dom.headerTitle.textContent = '总计划';
+  dom.headerDate.textContent = '文档为主，网页负责展示与打卡';
+
+  dom.mainContent.innerHTML = `
+    <section class="info-banner">
+      <i data-lucide="file-text"></i>
+      <div>
+        <h3>计划同步说明</h3>
+        <p>训练与饮食请以 <code>docs/训练与饮食计划.md</code> 为主；网页数据需要手动同步，避免两边内容漂移。</p>
+      </div>
+    </section>
+
+    <div class="section-title section-title-inline">
+      <span>每周安排</span>
+      <span class="section-meta">固定节奏，按天执行</span>
+    </div>
+    <section class="overview-grid">
+      ${GYM_DATA.weeklyOverview.map((item) => `
+        <article class="overview-card">
+          <div class="overview-head">
+            <span class="overview-day">${item.day}</span>
+            <span class="overview-focus">${item.focus}</span>
+          </div>
+          <div class="overview-line"><span>早训</span><strong>${item.morning}</strong></div>
+          <div class="overview-line overview-line-muted"><span>晚间</span><strong>${item.evening}</strong></div>
+        </article>
+      `).join('')}
+    </section>
+
+    <div class="section-title section-title-inline">
+      <span>补剂节奏</span>
+      <span class="section-meta">按固定时点补充</span>
+    </div>
+    <section class="content-card stack-list">
+      ${GYM_DATA.supplements.map((item) => `
+        <article class="stack-item">
+          <div>
+            <div class="stack-title">${item.name}</div>
+            <p class="stack-desc">${item.time}</p>
+          </div>
+          <span class="badge">${item.dose}</span>
+        </article>
+      `).join('')}
+    </section>
+
+    <div class="section-title section-title-inline">
+      <span>执行硬规则</span>
+      <span class="section-meta">训练安全与恢复优先级</span>
+    </div>
+    <section class="content-card stack-list">
+      ${GYM_DATA.rules.map((rule) => `
+        <article class="rule-item">
+          <i data-lucide="shield-alert"></i>
+          <span>${rule}</span>
+        </article>
+      `).join('')}
+    </section>
+  `;
+}
+
+function renderProfileTab() {
+  dom.headerTitle.textContent = '我的';
+  dom.headerDate.textContent = '查看打卡趋势与高级设置';
+
+  const profile = GYM_DATA.profile;
+  dom.mainContent.innerHTML = `
+    <div class="section-title section-title-inline">
+      <span>训练热力图</span>
+      <span class="section-meta">最近 12 周完成度</span>
+    </div>
+    <section class="content-card heatmap-card">
+      ${generateHeatmapHTML()}
+    </section>
+
+    <div class="section-title section-title-inline">
+      <span>身体指标</span>
+      <span class="section-meta">当前基础数据</span>
+    </div>
+    <section class="content-card stats-grid">
+      <article class="metric-card">
+        <span class="metric-label">身高 / 体重</span>
+        <strong>${profile.height} / ${profile.weight}</strong>
+      </article>
+      <article class="metric-card">
+        <span class="metric-label">体脂率</span>
+        <strong>${profile.bodyFat} → ${profile.targetBodyFat}</strong>
+      </article>
+      <article class="metric-card">
+        <span class="metric-label">基础代谢</span>
+        <strong>${profile.bmr}</strong>
+      </article>
+      <article class="metric-card">
+        <span class="metric-label">目标体重</span>
+        <strong>${profile.targetWeight}</strong>
+      </article>
+    </section>
+
+    <details class="settings-panel">
+      <summary class="settings-summary">
+        <div>
+          <span class="settings-title">高级设置</span>
+          <p class="settings-copy">调试日期与清理本地打卡，仅在需要时使用</p>
+        </div>
+        <i data-lucide="chevron-down"></i>
+      </summary>
+      <div class="settings-body">
+        <label class="field-label" for="day-override">调试日期覆盖（仅调试用）</label>
+        <select id="day-override" class="select-override">
+          <option value="none">自动（今天）</option>
+          <option value="1">周一</option>
+          <option value="2">周二</option>
+          <option value="3">周三</option>
+          <option value="4">周四</option>
+          <option value="5">周五</option>
+          <option value="6">周六</option>
+          <option value="0">周日</option>
+        </select>
+        <p class="field-help">开启后，今日页标题和任务内容都会切换到对应日期，便于检查各天排版与文案。</p>
+
+        <button id="clear-cache" type="button" class="btn-danger">清理本地打卡进度</button>
+      </div>
+    </details>
+  `;
+
+  bindProfileInteractions();
+}
+
+function bindProfileInteractions() {
+  const overrideSelect = document.getElementById('day-override');
+  if (overrideSelect) {
+    overrideSelect.value = state.getDayOverride() ?? 'none';
+    overrideSelect.addEventListener('change', (event) => {
+      state.setDayOverride(event.target.value);
+      renderCurrentTab();
+    });
+  }
+
+  const clearButton = document.getElementById('clear-cache');
+  if (clearButton) {
+    clearButton.addEventListener('click', () => {
+      const confirmed = window.confirm('确认清理当前设备上的所有本地打卡记录吗？此操作不会影响文档计划内容。');
+      if (!confirmed) return;
+      clearGymStorage(window.localStorage);
+      window.alert('本地打卡进度已清理。');
+      renderCurrentTab();
+    });
+  }
+
+  window.setTimeout(() => {
+    const scrollContainer = document.getElementById('heatmap-scroll');
+    if (scrollContainer) {
+      scrollContainer.scrollLeft = scrollContainer.scrollWidth;
+    }
+  }, 50);
 }
 
 function generateHeatmapHTML() {
-    const today = new Date();
-    
-    // Align grid so row 0 is Sunday, row 6 is Saturday.
-    const lastDayOfGrid = new Date(today);
-    lastDayOfGrid.setDate(today.getDate() + (6 - today.getDay()));
-    
-    // 12 columns = 12 weeks = 84 days
-    const firstDayOfGrid = new Date(lastDayOfGrid);
-    firstDayOfGrid.setDate(lastDayOfGrid.getDate() - 83);
-    
-    let gridDays = [];
-    for(let i = 0; i < 84; i++) {
-        const d = new Date(firstDayOfGrid);
-        d.setDate(firstDayOfGrid.getDate() + i);
-        gridDays.push(d);
+  const today = new Date();
+  const lastDayOfGrid = new Date(today);
+  lastDayOfGrid.setDate(today.getDate() + (6 - today.getDay()));
+
+  const firstDayOfGrid = new Date(lastDayOfGrid);
+  firstDayOfGrid.setDate(lastDayOfGrid.getDate() - 83);
+
+  const gridDays = [];
+  for (let i = 0; i < 84; i += 1) {
+    const date = new Date(firstDayOfGrid);
+    date.setDate(firstDayOfGrid.getDate() + i);
+    gridDays.push(date);
+  }
+
+  let monthsHtml = '';
+  let currentMonth = -1;
+  let colsInMonth = 0;
+  let columnsHtml = '';
+
+  for (let col = 0; col < 12; col += 1) {
+    const firstDayOfCol = gridDays[col * 7];
+    const monthIndex = firstDayOfCol.getMonth();
+
+    if (monthIndex !== currentMonth) {
+      if (currentMonth !== -1) {
+        monthsHtml += `<div class="month-label" style="--month-columns:${colsInMonth}">${formatHeatmapMonth(new Date(2000, currentMonth, 1))}</div>`;
+      }
+      currentMonth = monthIndex;
+      colsInMonth = 1;
+    } else {
+      colsInMonth += 1;
     }
-    
-    let monthsHtml = '';
-    let currentMonth = -1;
-    let colsInMonth = 0;
-    
-    let columnsHtml = '';
-    for(let col = 0; col < 12; col++) {
-        const firstDayOfCol = gridDays[col * 7];
-        
-        const monthIndex = firstDayOfCol.getMonth();
-        if (monthIndex !== currentMonth) {
-            if (currentMonth !== -1) {
-                const monthName = new Date(2000, currentMonth, 1).toLocaleString('en-US', {month: 'short'});
-                monthsHtml += `<div class="month-label" style="width: ${colsInMonth * 18}px">${monthName}</div>`;
-            }
-            currentMonth = monthIndex;
-            colsInMonth = 1;
-        } else {
-            colsInMonth++;
-        }
-        
-        columnsHtml += `<div class="heatmap-col">`;
-        for(let row = 0; row < 7; row++) {
-            const index = col * 7 + row;
-            const dateObj = gridDays[index];
-            
-            // If the date is in the future, render an invisible cell
-            if (dateObj > today) {
-                columnsHtml += `<div class="heatmap-cell hidden"></div>`;
-                continue;
-            }
-            
-            const dateString = `${dateObj.getFullYear()}-${dateObj.getMonth()+1}-${dateObj.getDate()}`;
-            const dayIndex = dateObj.getDay(); 
-            
-            const dayData = GYM_DATA.dailyRoutines[dayIndex.toString()];
-            let totalTasks = 0;
-            let completedTasks = 0;
-            
-            dayData.meals.forEach(m => {
-                const isTraining = m.title.includes('早训') || m.title.includes('晚训');
-                if (!isTraining) {
-                    totalTasks++;
-                    if (localStorage.getItem(`gym_${dateString}_${m.id}`) === 'true') completedTasks++;
-                }
-            });
-            dayData.workouts.forEach(w => {
-                totalTasks++;
-                if (localStorage.getItem(`gym_${dateString}_${w.id}`) === 'true') completedTasks++;
-            });
-            
-            let heatLevel = 0;
-            if (totalTasks > 0) {
-                const ratio = completedTasks / totalTasks;
-                if (ratio === 1) heatLevel = 4;
-                else if (ratio >= 0.7) heatLevel = 3;
-                else if (ratio >= 0.4) heatLevel = 2;
-                else if (ratio > 0) heatLevel = 1;
-            }
-            
-            columnsHtml += `<div class="heatmap-cell heat-${heatLevel}"></div>`;
-        }
-        columnsHtml += `</div>`;
+
+    columnsHtml += '<div class="heatmap-col">';
+    for (let row = 0; row < 7; row += 1) {
+      const index = col * 7 + row;
+      const dateObj = gridDays[index];
+      if (dateObj > today) {
+        columnsHtml += '<div class="heatmap-cell hidden"></div>';
+        continue;
+      }
+
+      const dateKey = toDateKey(dateObj);
+      const dayData = GYM_DATA.dailyRoutines[String(dateObj.getDay())];
+      const heatLevel = getHeatLevel(dayData, window.localStorage, dateKey);
+      columnsHtml += `<div class="heatmap-cell heat-${heatLevel}" title="${dateKey}"></div>`;
     }
-    
-    // Add the final month label
-    if (currentMonth !== -1) {
-        const monthName = new Date(2000, currentMonth, 1).toLocaleString('en-US', {month: 'short'});
-        monthsHtml += `<div class="month-label" style="width: ${colsInMonth * 18}px">${monthName}</div>`;
-    }
-    
-    let html = `
-        <div class="heatmap-wrapper">
-            <div class="heatmap-weekdays">
-                <div class="weekday-label" style="visibility: hidden">Sun</div>
-                <div class="weekday-label">Mon</div>
-                <div class="weekday-label" style="visibility: hidden">Tue</div>
-                <div class="weekday-label">Wed</div>
-                <div class="weekday-label" style="visibility: hidden">Thu</div>
-                <div class="weekday-label">Fri</div>
-                <div class="weekday-label" style="visibility: hidden">Sat</div>
-            </div>
-            <div class="heatmap-scroll-container" id="heatmap-scroll">
-                <div class="heatmap-months">
-                    ${monthsHtml}
-                </div>
-                <div class="heatmap-grid">
-                    ${columnsHtml}
-                </div>
-            </div>
-        </div>
-    `;
-    
-    // Add Legend
-    html += `
-        <div class="heatmap-legend">
-            Less 
-            <div class="legend-item heat-0"></div>
-            <div class="legend-item heat-1"></div>
-            <div class="legend-item heat-2"></div>
-            <div class="legend-item heat-3"></div>
-            <div class="legend-item heat-4"></div>
-            More
-        </div>
-    `;
-    return html;
+    columnsHtml += '</div>';
+  }
+
+  if (currentMonth !== -1) {
+    monthsHtml += `<div class="month-label" style="--month-columns:${colsInMonth}">${formatHeatmapMonth(new Date(2000, currentMonth, 1))}</div>`;
+  }
+
+  const weekdays = [0, 1, 2, 3, 4, 5, 6];
+  return `
+    <div class="heatmap-wrapper">
+      <div class="heatmap-weekdays">
+        ${weekdays.map((dayIndex) => `<div class="weekday-label ${dayIndex % 2 === 0 ? 'weekday-label-muted' : ''}">${formatShortWeekday(dayIndex)}</div>`).join('')}
+      </div>
+      <div class="heatmap-scroll-container" id="heatmap-scroll">
+        <div class="heatmap-months">${monthsHtml}</div>
+        <div class="heatmap-grid">${columnsHtml}</div>
+      </div>
+    </div>
+    <div class="heatmap-legend">
+      <span>少</span>
+      <div class="legend-item heat-0"></div>
+      <div class="legend-item heat-1"></div>
+      <div class="legend-item heat-2"></div>
+      <div class="legend-item heat-3"></div>
+      <div class="legend-item heat-4"></div>
+      <span>多</span>
+    </div>
+  `;
 }
 
-// Start app
 window.addEventListener('DOMContentLoaded', init);

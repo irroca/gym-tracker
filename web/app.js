@@ -21,6 +21,8 @@ const dom = {
   navItems: Array.from(document.querySelectorAll('.nav-item')),
 };
 
+const expandedTrainingBlocks = new Set();
+
 function init() {
   setupNavigation();
   renderCurrentTab();
@@ -159,12 +161,13 @@ function renderMealBlock(item, dateKey) {
 
 function renderTrainingBlock(item, workouts, warmup, dateKey) {
   const statusClass = getTrainingGroupStatus(workouts, window.localStorage, dateKey);
+  const expandedClass = expandedTrainingBlocks.has(String(item.id)) ? 'expanded' : '';
   const warmupHtml = (!item.title.includes('晚训') && warmup !== '无')
     ? `<div class="warmup-note"><span class="warmup-label">热身</span><span>${warmup}</span></div>`
     : '';
 
   return `
-    <section class="timeline-item timeline-training ${statusClass}" id="block-${item.id}">
+    <section class="timeline-item timeline-training ${statusClass} ${expandedClass}" id="block-${item.id}">
       <div class="timeline-rail">
         <span class="training-icon"><i data-lucide="dumbbell"></i></span>
       </div>
@@ -219,8 +222,16 @@ function bindTodayInteractions(dateKey) {
 
   dom.mainContent.querySelectorAll('[data-training-id]').forEach((button) => {
     button.addEventListener('click', () => {
-      const block = document.getElementById(`block-${button.dataset.trainingId}`);
-      if (block) block.classList.toggle('expanded');
+      const trainingId = button.dataset.trainingId;
+      const block = document.getElementById(`block-${trainingId}`);
+      if (block) {
+        const isExpanded = block.classList.toggle('expanded');
+        if (isExpanded) {
+          expandedTrainingBlocks.add(String(trainingId));
+        } else {
+          expandedTrainingBlocks.delete(String(trainingId));
+        }
+      }
     });
   });
 

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'gymtracker-v13';
+const CACHE_NAME = 'gymtracker-v14';
 const ASSETS = [
   './',
   './index.html',
@@ -6,13 +6,14 @@ const ASSETS = [
   './app.js',
   './data.js',
   './manifest.json',
-  './lucide.min.js',
+  './icons.js',
   './icon-192.png',
   './icon-512.png',
   './modules/date.mjs',
   './modules/state.mjs',
   './modules/storage.mjs',
-  './modules/ui.mjs'
+  './modules/ui.mjs',
+  './modules/render.mjs'
 ];
 
 self.addEventListener('install', (event) => {

@@ -117,6 +117,19 @@ test('renderTodayView builds header + summary with debug awareness', () => {
   assert.match(view.html, /0 \/ 5 项完成/); // 2 个非训练餐次 + 3 个动作（含晚训动作）
 });
 
+test('renderTodayView shows completion state when every item is checked', () => {
+  const appDate = new Date('2026-05-26T09:00:00+08:00');
+  const seed = {};
+  sampleDay.meals.forEach((meal) => { seed[`gym_2026-5-26_${meal.id}`] = 'true'; });
+  sampleDay.workouts.forEach((workout) => { seed[`gym_2026-5-26_${workout.id}`] = 'true'; });
+
+  const view = renderTodayView(sampleDay, '2026-5-26', createStorage(seed), { appDate });
+  assert.match(view.html, /summary-card--complete/);
+  assert.match(view.html, /summary-pill-complete/);
+  assert.match(view.html, /今日计划已全部完成/);
+  assert.doesNotMatch(view.html, /项完成，继续保持节奏/);
+});
+
 test('renderPlanView lists weekly overview, supplements, and rules from data', () => {
   const view = renderPlanView(GYM_DATA);
   assert.equal(view.title, '总计划');

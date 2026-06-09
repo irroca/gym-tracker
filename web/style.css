@@ -23,6 +23,7 @@
     --radius-sm: 12px;
     --nav-height: 84px;
     --header-height: 76px;
+    --app-max-width: 480px;
 }
 
 * {
@@ -63,6 +64,8 @@ button, select {
     flex-direction: column;
     height: 100vh;
     height: 100dvh;
+    max-width: var(--app-max-width);
+    margin-inline: auto;
     overflow: hidden;
 }
 
@@ -70,6 +73,8 @@ button, select {
     background: linear-gradient(180deg, rgba(9, 12, 17, 0.92), rgba(9, 12, 17, 0.72));
     position: fixed;
     inset: 0 0 auto 0;
+    max-width: var(--app-max-width);
+    margin-inline: auto;
     z-index: 40;
     height: calc(var(--header-height) + env(safe-area-inset-top, 0px));
     padding: env(safe-area-inset-top, 0px) 22px 0;
@@ -104,6 +109,8 @@ button, select {
 .bottom-nav {
     position: fixed;
     inset: auto 0 0 0;
+    max-width: var(--app-max-width);
+    margin-inline: auto;
     z-index: 50;
     display: flex;
     justify-content: space-around;
@@ -1066,4 +1073,47 @@ button, select {
     .stats-grid {
         grid-template-columns: 1fr;
     }
+}
+
+/* 宽屏（桌面 / 平板）上把应用约束成居中的手机框，避免内容横向拉满 */
+@media (min-width: 481px) {
+    body {
+        background:
+            radial-gradient(circle at 50% -10%, rgba(89, 241, 168, 0.08), transparent 38%),
+            linear-gradient(180deg, #07090c 0%, #05070a 100%);
+    }
+
+    .app-container {
+        box-shadow: var(--shadow-deep);
+    }
+
+    .app-header,
+    .app-container,
+    .bottom-nav {
+        border-left: 1px solid var(--line-soft);
+        border-right: 1px solid var(--line-soft);
+    }
+}
+
+/* 今日全部完成时的达成态 */
+.summary-pill-complete {
+    background: var(--accent-primary);
+    color: #06281a;
+}
+
+.summary-card--complete {
+    box-shadow: 0 0 0 1px rgba(89, 241, 168, 0.42), var(--shadow-deep);
+}
+
+.summary-card--complete .circular-progress {
+    box-shadow: inset 0 0 0 1px rgba(89, 241, 168, 0.4), 0 0 30px rgba(89, 241, 168, 0.34);
+}
+
+/* 键盘可达性：聚焦时给出清晰焦点环 */
+button:focus-visible,
+select:focus-visible,
+summary:focus-visible {
+    outline: 2px solid var(--accent-secondary);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
 }

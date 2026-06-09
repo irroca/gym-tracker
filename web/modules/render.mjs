@@ -103,9 +103,13 @@ export function renderTodayView(dayData, dateKey, storage, { appDate = new Date(
   const highlights = getDailyHighlights(dayData);
   const visual = getVisualContext(dayData);
   const timelineHtml = renderTimeline(dayData, dateKey, storage, expandedIds);
+  const isComplete = progress.totalItems > 0 && progress.progressPercent === 100;
+  const summaryCopy = isComplete
+    ? '今日计划已全部完成，记得补够蛋白、睡满 7 小时，让训练真正落地。'
+    : `${progress.completedItems} / ${progress.totalItems} 项完成，继续保持节奏。`;
 
   const html = `
-    <section class="summary-card summary-card--${visual.tone}">
+    <section class="summary-card summary-card--${visual.tone}${isComplete ? ' summary-card--complete' : ''}">
       <div class="summary-backdrop"></div>
       <div class="summary-gridline"></div>
       <div class="summary-row">
@@ -113,6 +117,7 @@ export function renderTodayView(dayData, dateKey, storage, { appDate = new Date(
           <div class="eyebrow-row">
             <span class="summary-pill">${dayData.dayName}</span>
             <span class="summary-pill summary-pill-energy">${visual.badge}</span>
+            ${isComplete ? '<span class="summary-pill summary-pill-complete">今日达成</span>' : ''}
             ${debug ? '<span class="summary-pill summary-pill-debug">调试模式</span>' : ''}
           </div>
           <div class="summary-kicker-row">
@@ -120,7 +125,7 @@ export function renderTodayView(dayData, dateKey, storage, { appDate = new Date(
             <span class="summary-energy">${visual.energy}</span>
           </div>
           <h2 class="summary-title">${dayData.workoutType}</h2>
-          <p class="summary-copy">${progress.completedItems} / ${progress.totalItems} 项完成，继续保持节奏。</p>
+          <p class="summary-copy">${summaryCopy}</p>
           <div class="summary-stats-bar">
             <div class="summary-stat">
               <span class="summary-stat-label">完成率</span>
